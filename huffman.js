@@ -51,7 +51,6 @@ class Huffman {
   }
 
   generateTree(data) {
-
     // Build a list of counts for each byte's occurrence (i.e. the probability of seeing the byte)
     let occurrenceMap = {}
     for(let byte of data) {
@@ -72,13 +71,13 @@ class Huffman {
     while(occurrences.length > 1) {
       occurrences.sort( (a, b) => a.count - b.count )
 
+      let r = occurrences.shift()
+      let l = occurrences.shift()
       let node = {
-        count: occurrences[0].count + occurrences[1].count,
-        l: occurrences[1],
-        r: occurrences[0],
+        count: l.count + r.count,
+        l: l,
+        r: r,
       }
-      occurrences.shift()
-      occurrences.shift()
       occurrences.push(node)
     }
 
@@ -94,6 +93,7 @@ class Huffman {
     let table = {}
     this.generateTable(table, tree)
     // console.log(JSON.stringify(table, null, 2))
+
     let dataPayload = ""
     for(let byte of data) {
       dataPayload += table[byte]
