@@ -14,6 +14,88 @@ class Huffman {
     this.root = {}
     this.treeBits = 0
     this.dataBits = 0
+
+    // Used for bit read/write
+    this.bytesRemaining = -1
+    this.bitsRemaining = -1
+    this.bits = 0
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Bit helpers
+
+  readBitAvailable(input) {
+    if(this.bitsRemaining > 0) {
+      return true
+    }
+    if(this.bytesRemaining == -1) {
+      return (input.length > 0)
+    }
+    return (this.bytesRemaining > 0)
+  }
+
+  readBit(input) {
+    if(this.bitsRemaining < 1) {
+      if(this.bytesRemaining < 0) {
+        this.bytesRemaining = input.length
+      }
+      if(input.bytesRemaining == 0) {
+        throw "Ran out of data!"
+      }
+      this.bits = input[input.length - this.bytesRemaining]
+      this.bytesRemaining -= 1
+      this.bitsRemaining = 8
+    }
+
+    let bit = (this.bits >> 7) & 0x1
+    this.bitsRemaining -= 1
+    this.bits <<= 1
+    return bit
+  }
+
+  readUInt(input, bitCount = 8) {
+    let v = 0
+    for(let i = 0; i < bitCount; ++i) {
+      v = (v << 1) | this.readBit(input)
+    }
+    return v
+  }
+
+  writeBit(output, v) {
+    if(this.bitsRemaining < 1) {
+      if(this.bitsRemaining == 0) {
+        output.push(this.bits)
+      }
+      this.bits = 0
+      this.bitsRemaining = 8
+    }
+
+    this.bits = (this.bits << 1) | (v & 0x1)
+    this.bitsRemaining -= 1
+  }
+
+  writeUInt(output, v, bitCount = 8) {
+    for(let i = 0; i < bitCount; ++i) {
+      let bit = (v >> bitCount - 1 - i) & 0x1
+      this.writeBit(output, bit)
+    }
+  }
+
+  writeCode(output, code) {
+    let splitCode = code.split('')
+    for(let c of splitCode) {
+      this.writeBit(output, (c == '0') ? 0 : 1)
+    }
+  }
+
+  writeFinish(output) {
+    if(this.bitsRemaining > 0) {
+      this.bits <<= this.bitsRemaining
+      output.push(this.bits)
+
+      this.bits = 0
+      this.bitsRemaining = 0
+    }
   }
 
   // ------------------------------------------------------------------------------------
@@ -91,29 +173,27 @@ class Huffman {
   writeTreeRecurse(output, node) {
     let bitCount = 0
     if(node.l) {
-      output.push(0)
+      this.writeBit(output, 0)
       bitCount += 1
       bitCount += this.writeTreeRecurse(output, node.l)
       bitCount += this.writeTreeRecurse(output, node.r)
     } else {
-      output.push(1)
+      this.writeBit(output, 1)
       bitCount += 1
-      output.push(node.eob ? 1 : 0)
+      this.writeBit(output, node.eob ? 1 : 0)
       bitCount += 1
-      output.push(node.value)
+      this.writeUInt(output, node.value)
       bitCount += 8
     }
     return bitCount
   }
 
-  writeTree() {
-    let output = []
+  writeTree(output) {
     this.treeBits = this.writeTreeRecurse(output, this.root)
-    return output
   }
 
   readTreeRecurse(input) {
-    let which = input.shift()
+    let which = this.readBit(input)
     if(which == 0) {
       // Parent node
       let l = this.readTreeRecurse(input)
@@ -124,8 +204,8 @@ class Huffman {
       }
     } else {
       // Child node
-      let eob = (input.shift() == 1)
-      let value = input.shift()
+      let eob = (this.readBit(input) == 1)
+      let value = this.readUInt(input)
       let node = {
         value: value,
 
@@ -155,37 +235,34 @@ class Huffman {
     // console.log(JSON.stringify(this.root, null, 2))
     // console.log(JSON.stringify(this.table, null, 2))
 
-    let dataPayload = ""
+    let payload = []
+    this.writeTree(payload)
     for(let byte of data) {
-      dataPayload += this.table[byte]
+      this.writeCode(payload, this.table[byte])
     }
-    dataPayload += this.eob
-    this.dataBits = dataPayload.length
+    this.writeCode(payload, this.eob)
+    this.writeFinish(payload)
 
-    let treePayload = this.writeTree()
-
-    return {
-      tree: treePayload,
-      data: dataPayload,
-
-      treeBits: this.treeBits,
-      dataBits: this.dataBits,
-    }
+    // for(let b of payload) {
+    //   console.log(`Byte: ${b.toString(2)}`)
+    // }
+    return payload
   }
 
   // ------------------------------------------------------------------------------------
   // Decode
 
-  decode(treePayload, dataPayload) {
+  decode(payload) {
     this.clear()
 
-    this.readTree(treePayload)
+    this.readTree(payload)
     // console.log(JSON.stringify(this.root, null, 2))
 
     let output = []
-    let bits = dataPayload.split('')
     let n = this.root
-    for(let bit of bits) {
+
+    while(this.readBitAvailable(payload)) {
+      const bit = this.readBit(payload)
       if(n.l) {
         if(bit == '0') {
           n = n.l
@@ -222,11 +299,11 @@ function main() {
 
   // Encode!
   let huffman = new Huffman()
-  let encoded = huffman.encode(data)
-  // console.log(encoded)
+  let payload = huffman.encode(data)
+  let totalBytes = payload.length
 
   // Decode it and check to see if it roundtripped successfully
-  let decoded = huffman.decode(encoded.tree, encoded.data)
+  let decoded = huffman.decode(payload)
   // console.log("\nDecoded:\n---\n" + decoded.toString() + "\n---")
   if (Buffer.compare(data, decoded) == 0) {
     console.log("Buffers match.")
@@ -235,11 +312,9 @@ function main() {
   }
 
   // Print cool stuffs
-  let totalBits = encoded.treeBits + encoded.dataBits
-  let totalBytes = Math.floor((totalBits + 7) / 8)
   let percentage = 100.0 * totalBytes / data.length
   console.log(`\nOriginal payload: ${data.length} bytes.`)
-  console.log(`tree(${encoded.treeBits}) bits + data(${encoded.dataBits}) bits = ${totalBits} bits = ${totalBytes} bytes.`)
+  console.log(`New payload: ${totalBytes} bytes.`)
   console.log(`Compressed size is ${percentage.toFixed(2)}% of the original size.`)
 }
 
