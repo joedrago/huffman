@@ -246,7 +246,7 @@ class Huffman {
     // for(let b of payload) {
     //   console.log(`Byte: ${b.toString(2)}`)
     // }
-    return payload
+    return Buffer.from(payload)
   }
 
   // ------------------------------------------------------------------------------------
@@ -300,7 +300,6 @@ function main() {
   // Encode!
   let huffman = new Huffman()
   let payload = huffman.encode(data)
-  let totalBytes = payload.length
 
   // Decode it and check to see if it roundtripped successfully
   let decoded = huffman.decode(payload)
@@ -312,9 +311,9 @@ function main() {
   }
 
   // Print cool stuffs
-  let percentage = 100.0 * totalBytes / data.length
+  let percentage = 100.0 * payload.length / data.length
   console.log(`\nOriginal payload: ${data.length} bytes.`)
-  console.log(`New payload: ${totalBytes} bytes.`)
+  console.log(`New payload: ${payload.length} bytes.`)
   console.log(`Compressed size is ${percentage.toFixed(2)}% of the original size.`)
 }
 
